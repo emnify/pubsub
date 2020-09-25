@@ -34,12 +34,13 @@
       <groupId>com.google.apis</groupId>
       <artifactId>google-api-services-pubsub</artifactId>
       <version>v1-rev452-1.25.0</version>
-      <exclusions>
+      <!--<exclusions>
         <exclusion>
           <groupId>com.google.guava</groupId>
           <artifactId>guava-jre</artifactId>
         </exclusion>
       </exclusions>
+      -->
     </dependency>
     <dependency>
       <groupId>com.google.cloud</groupId>
