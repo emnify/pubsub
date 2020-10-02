@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -362,7 +363,7 @@ public class CloudPubSubSinkTask extends SinkTask {
         continue;
       }
       try {
-        ApiFutures.allAsList(outstandingFutures.futures).get();
+        ApiFutures.allAsList(outstandingFutures.futures).get(maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
       } catch (Exception e) {
         throw new RuntimeException(e);
       } finally {
