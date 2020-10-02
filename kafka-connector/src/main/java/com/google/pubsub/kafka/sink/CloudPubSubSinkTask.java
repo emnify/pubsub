@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -47,7 +48,6 @@ import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.errors.DataException;
 import org.apache.kafka.connect.header.ConnectHeaders;
 import org.apache.kafka.connect.header.Header;
-import org.apache.kafka.connect.header.Headers;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.apache.kafka.connect.sink.SinkTask;
 import org.slf4j.Logger;
@@ -336,7 +336,7 @@ public class CloudPubSubSinkTask extends SinkTask {
         continue;
       }
       try {
-        ApiFutures.allAsList(outstandingFutures.futures).get();
+        ApiFutures.allAsList(outstandingFutures.futures).get(maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
       } catch (Exception e) {
         throw new RuntimeException(e);
       } finally {
