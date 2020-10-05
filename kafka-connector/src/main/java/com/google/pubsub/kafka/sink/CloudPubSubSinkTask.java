@@ -199,11 +199,11 @@ public class CloudPubSubSinkTask extends SinkTask {
         try {
           atLeastOneWritten.await(this.maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
         } catch (InterruptedException ex) {
-          // find out which one failed
-          ApiFutures.allAsList(allOutstandingFutures.values().stream()
-                  .flatMap(v -> v.values().stream())
-                  .flatMap(v -> v.futures.stream()).collect(Collectors.toList())).get();
+          // ignore
         }
+        ApiFutures.allAsList(allOutstandingFutures.values().stream()
+                .flatMap(v -> v.values().stream())
+                .flatMap(v -> v.futures.stream()).filter(f -> f.isDone()).collect(Collectors.toList())).get();
       } catch (Exception ex) {
         throw new ConnectException("Message publishing failed/timed out", ex);
       }
