@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -195,8 +196,15 @@ public class CloudPubSubSinkTask extends SinkTask {
     }
     if (waitForAtLeastOne) {
       try {
-        atLeastOneWritten.await(this.maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
-      } catch (InterruptedException ex) {
+        try {
+          atLeastOneWritten.await(this.maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ex) {
+          // find out which one failed
+          ApiFutures.allAsList(allOutstandingFutures.values().stream()
+                  .flatMap(v -> v.values().stream())
+                  .flatMap(v -> v.futures.stream()).collect(Collectors.toList()));
+        }
+      } catch (Exception ex) {
         throw new ConnectException("Message publishing failed/timed out", ex);
       }
     }
