@@ -22,6 +22,7 @@ import com.google.api.gax.batching.BatchingSettings;
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.protobuf.ByteString;
 import com.google.pubsub.kafka.common.ConnectorUtils;
 import com.google.pubsub.kafka.common.ConnectorCredentialsProvider;
@@ -79,7 +80,6 @@ public class CloudPubSubSinkTask extends SinkTask {
   private boolean waitForAtLeastOne;
   private ConnectorCredentialsProvider gcpCredentialsProvider;
   private com.google.cloud.pubsub.v1.Publisher publisher;
-  private ExecutorService syncExecutor;
 
   /** Holds a list of the publishing futures that have not been processed for a single partition. */
   private class OutstandingFuturesForPartition {
@@ -127,7 +127,6 @@ public class CloudPubSubSinkTask extends SinkTask {
     includeHeaders = (Boolean) validatedProps.get(CloudPubSubSinkConnector.PUBLISH_KAFKA_HEADERS);
     gcpCredentialsProvider = new ConnectorCredentialsProvider();
     waitForAtLeastOne = (Boolean) validatedProps.get(CloudPubSubSinkConnector.WAIT_FOR_AT_LEAST_ONE);
-    syncExecutor = Executors.newCachedThreadPool();
     String credentialsPath = (String) validatedProps.get(ConnectorUtils.GCP_CREDENTIALS_FILE_PATH_CONFIG);
     String credentialsJson = (String) validatedProps.get(ConnectorUtils.GCP_CREDENTIALS_JSON_CONFIG);
     if (credentialsPath != null) {
@@ -191,7 +190,7 @@ public class CloudPubSubSinkTask extends SinkTask {
       PubsubMessage message = builder.build();
       ApiFuture<String> result = publishMessage(record.topic(), record.kafkaPartition(), message);
       if (waitForAtLeastOne) {
-        result.addListener(() -> atLeastOneWritten.countDown(), syncExecutor);
+        result.addListener(() -> atLeastOneWritten.countDown(), MoreExecutors.directExecutor());
       }
     }
     if (waitForAtLeastOne) {
