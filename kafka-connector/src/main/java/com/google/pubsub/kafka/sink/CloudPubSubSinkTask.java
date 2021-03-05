@@ -22,6 +22,7 @@ import com.google.api.gax.batching.BatchingSettings;
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.protobuf.ByteString;
 import com.google.pubsub.kafka.common.ConnectorUtils;
 import com.google.pubsub.kafka.common.ConnectorCredentialsProvider;
@@ -36,7 +37,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -44,10 +46,10 @@ import org.apache.kafka.connect.data.Field;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Schema.Type;
 import org.apache.kafka.connect.data.Struct;
+import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.errors.DataException;
 import org.apache.kafka.connect.header.ConnectHeaders;
 import org.apache.kafka.connect.header.Header;
-import org.apache.kafka.connect.header.Headers;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.apache.kafka.connect.sink.SinkTask;
 import org.slf4j.Logger;
@@ -76,6 +78,7 @@ public class CloudPubSubSinkTask extends SinkTask {
   private int maxShutdownTimeoutMs;
   private boolean includeMetadata;
   private boolean includeHeaders;
+  private boolean waitForAtLeastOne;
   private ConnectorCredentialsProvider gcpCredentialsProvider;
   private com.google.cloud.pubsub.v1.Publisher publisher;
 
@@ -124,19 +127,20 @@ public class CloudPubSubSinkTask extends SinkTask {
     includeMetadata = (Boolean) validatedProps.get(CloudPubSubSinkConnector.PUBLISH_KAFKA_METADATA);
     includeHeaders = (Boolean) validatedProps.get(CloudPubSubSinkConnector.PUBLISH_KAFKA_HEADERS);
     gcpCredentialsProvider = new ConnectorCredentialsProvider();
+    waitForAtLeastOne = (Boolean) validatedProps.get(CloudPubSubSinkConnector.WAIT_FOR_AT_LEAST_ONE);
     String credentialsPath = (String) validatedProps.get(ConnectorUtils.GCP_CREDENTIALS_FILE_PATH_CONFIG);
     String credentialsJson = (String) validatedProps.get(ConnectorUtils.GCP_CREDENTIALS_JSON_CONFIG);
     if (credentialsPath != null) {
       try {
         gcpCredentialsProvider.loadFromFile(credentialsPath);
       } catch (IOException e) {
-        throw new RuntimeException(e);
+        throw new ConnectException("Unable to load credentials", e);
       }
     } else if (credentialsJson != null) {
       try {
         gcpCredentialsProvider.loadJson(credentialsJson);
       } catch (IOException e) {
-        throw new RuntimeException(e);
+        throw new ConnectException("Unable to load credentials", e);
       }
     }
     if (publisher == null) {
@@ -149,6 +153,7 @@ public class CloudPubSubSinkTask extends SinkTask {
   @Override
   public void put(Collection<SinkRecord> sinkRecords) {
     log.debug("Received " + sinkRecords.size() + " messages to send to CPS.");
+    CountDownLatch atLeastOneWritten = new CountDownLatch(sinkRecords.size() > 0 ? 1 : 0);
     for (SinkRecord record : sinkRecords) {
       log.trace("Received record: " + record.toString());
       Map<String, String> attributes = new HashMap<>();
@@ -184,7 +189,24 @@ public class CloudPubSubSinkTask extends SinkTask {
         builder.setData(value);
       }
       PubsubMessage message = builder.build();
-      publishMessage(record.topic(), record.kafkaPartition(), message);
+      ApiFuture<String> result = publishMessage(record.topic(), record.kafkaPartition(), message);
+      if (waitForAtLeastOne) {
+        result.addListener(() -> atLeastOneWritten.countDown(), MoreExecutors.directExecutor());
+      }
+    }
+    if (waitForAtLeastOne) {
+      try {
+        try {
+          atLeastOneWritten.await(this.maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ex) {
+          // ignore
+        }
+        ApiFutures.allAsList(allOutstandingFutures.values().stream()
+                .flatMap(v -> v.values().stream())
+                .flatMap(v -> v.futures.stream()).filter(f -> f.isDone()).collect(Collectors.toList())).get();
+      } catch (Exception ex) {
+        throw new ConnectException("Message publishing failed/timed out", ex);
+      }
     }
   }
 
@@ -336,9 +358,9 @@ public class CloudPubSubSinkTask extends SinkTask {
         continue;
       }
       try {
-        ApiFutures.allAsList(outstandingFutures.futures).get();
-      } catch (Exception e) {
-        throw new RuntimeException(e);
+        ApiFutures.allAsList(outstandingFutures.futures).get(maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
+      } catch (InterruptedException| ExecutionException|TimeoutException e) {
+        throw new ConnectException("Flush failed", e);
       } finally {
         outstandingFutures.futures.clear();
       }
@@ -347,11 +369,11 @@ public class CloudPubSubSinkTask extends SinkTask {
   }
 
   /** Publish all the messages in a partition and store the Future's for each publish request. */
-  private void publishMessage(String topic, Integer partition, PubsubMessage message) {
-    addPendingMessageFuture(topic, partition, publisher.publish(message));
+  private ApiFuture<String> publishMessage(String topic, Integer partition, PubsubMessage message) {
+    return addPendingMessageFuture(topic, partition, publisher.publish(message));
   }
 
-  private void addPendingMessageFuture(String topic, Integer partition, ApiFuture<String> future) {
+  private ApiFuture<String> addPendingMessageFuture(String topic, Integer partition, ApiFuture<String> future) {
     // Get a map containing all futures per partition for the passed in topic.
     Map<Integer, OutstandingFuturesForPartition> outstandingFuturesForTopic =
         allOutstandingFutures.get(topic);
@@ -366,6 +388,7 @@ public class CloudPubSubSinkTask extends SinkTask {
       outstandingFuturesForTopic.put(partition, outstandingFutures);
     }
     outstandingFutures.futures.add(future);
+    return future;
   }
 
   private void createPublisher() {
@@ -394,7 +417,7 @@ public class CloudPubSubSinkTask extends SinkTask {
     try {
       publisher = builder.build();
     } catch (Exception e) {
-      throw new RuntimeException(e);
+      throw new ConnectException("Creating publisher failed", e);
     }
   }
 
