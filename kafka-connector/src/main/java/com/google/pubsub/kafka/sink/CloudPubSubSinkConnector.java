@@ -234,11 +234,11 @@ public class CloudPubSubSinkConnector extends SinkConnector {
             null,
             Importance.HIGH,
             "The path to the GCP credentials file")
-        .define(ConnectorUtils.GCP_CREDENTIALS_JSON_CONFIG,
-            Type.STRING,
-            null,
-            Importance.HIGH,
-            "GCP JSON credentials")
+        .define(WAIT_FOR_AT_LEAST_ONE,
+                    Type.BOOLEAN,
+                    DEFAULT_WAIT_FOR_AT_LEAST_ONE,
+                    Importance.HIGH,
+                    "Wait for at least one in put intstead of flush")
         .define(ORDERING_KEY_SOURCE,
             Type.STRING,
             DEFAULT_ORDERING_KEY_SOURCE,
@@ -250,7 +250,12 @@ public class CloudPubSubSinkConnector extends SinkConnector {
             Type.STRING,
             ConnectorUtils.CPS_DEFAULT_ENDPOINT,
             Importance.LOW,
-            "The Pub/Sub endpoint to use.");
+            "The Pub/Sub endpoint to use.")
+	.define(ConnectorUtils.GCP_CREDENTIALS_JSON_CONFIG,
+            Type.STRING,
+            null,
+            Importance.HIGH,
+            "GCP JSON credentials");
   }
 
   @Override

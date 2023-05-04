@@ -65,6 +65,7 @@ import org.threeten.bp.Duration;
  * href="https://cloud.google.com/pubsub">Google Cloud Pub/Sub</a>.
  */
 public class CloudPubSubSinkTask extends SinkTask {
+
   private static final Logger log = LoggerFactory.getLogger(CloudPubSubSinkTask.class);
 
   // Maps a topic to another map which contains the outstanding futures per partition
@@ -149,13 +150,13 @@ public class CloudPubSubSinkTask extends SinkTask {
       try {
         gcpCredentialsProvider.loadFromFile(credentialsPath);
       } catch (IOException e) {
-        throw new RuntimeException(e);
+        throw new ConnectException("Unable to load credentials", e);
       }
     } else if (credentialsJson != null) {
       try {
         gcpCredentialsProvider.loadJson(credentialsJson);
       } catch (IOException e) {
-        throw new RuntimeException(e);
+        throw new ConnectException("Unable to load credentials", e);
       }
     }
     if (publisher == null) {
@@ -211,7 +212,17 @@ public class CloudPubSubSinkTask extends SinkTask {
       }
 
       PubsubMessage message = builder.build();
-      publishMessage(record.topic(), record.kafkaPartition(), message);
+      ApiFuture<String> result = publishMessage(record.topic(), record.kafkaPartition(), message);
+      if (waitForAtLeastOne) {
+        result.addListener(() -> atLeastOneWritten.countDown(), syncExecutor);
+      }
+    }	
+    if (waitForAtLeastOne) {
+        try {
+         atLeastOneWritten.await(this.maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ex) {
+         throw new ConnectException("Message publishing failed/timed out", ex);
+      }
     }
   }
 
@@ -364,8 +375,8 @@ public class CloudPubSubSinkTask extends SinkTask {
       }
       try {
         ApiFutures.allAsList(outstandingFutures.futures).get(maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
-      } catch (Exception e) {
-        throw new RuntimeException(e);
+      } catch (InterruptedException| ExecutionException|TimeoutException e) {
+        throw new ConnectException("Flush failed", e);
       } finally {
         outstandingFutures.futures.clear();
       }
@@ -374,11 +385,11 @@ public class CloudPubSubSinkTask extends SinkTask {
   }
 
   /** Publish all the messages in a partition and store the Future's for each publish request. */
-  private void publishMessage(String topic, Integer partition, PubsubMessage message) {
-    addPendingMessageFuture(topic, partition, publisher.publish(message));
+  private ApiFuture<String> publishMessage(String topic, Integer partition, PubsubMessage message) {
+    return addPendingMessageFuture(topic, partition, publisher.publish(message));
   }
 
-  private void addPendingMessageFuture(String topic, Integer partition, ApiFuture<String> future) {
+  private ApiFuture<String> addPendingMessageFuture(String topic, Integer partition, ApiFuture<String> future) {
     // Get a map containing all futures per partition for the passed in topic.
     Map<Integer, OutstandingFuturesForPartition> outstandingFuturesForTopic =
         allOutstandingFutures.get(topic);
@@ -393,6 +404,7 @@ public class CloudPubSubSinkTask extends SinkTask {
       outstandingFuturesForTopic.put(partition, outstandingFutures);
     }
     outstandingFutures.futures.add(future);
+    return future;
   }
 
   private void createPublisher() {
@@ -435,7 +447,7 @@ public class CloudPubSubSinkTask extends SinkTask {
     try {
       publisher = builder.build();
     } catch (Exception e) {
-      throw new RuntimeException(e);
+      throw new ConnectException("Creating publisher failed", e);
     }
   }
 

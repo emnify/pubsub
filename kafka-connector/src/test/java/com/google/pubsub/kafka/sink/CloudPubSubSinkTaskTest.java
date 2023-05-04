@@ -124,6 +124,7 @@ public class CloudPubSubSinkTaskTest {
     props = new HashMap<>();
     props.put(ConnectorUtils.CPS_TOPIC_CONFIG, CPS_TOPIC);
     props.put(ConnectorUtils.CPS_PROJECT_CONFIG, CPS_PROJECT);
+    props.put(CloudPubSubSinkConnector.WAIT_FOR_AT_LEAST_ONE, "false");
     props.put(CloudPubSubSinkConnector.MAX_BUFFER_SIZE_CONFIG, CPS_MIN_BATCH_SIZE2);
   }
 
