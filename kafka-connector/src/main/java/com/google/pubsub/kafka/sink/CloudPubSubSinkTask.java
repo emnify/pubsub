@@ -51,6 +51,7 @@ import org.apache.kafka.connect.data.Field;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Schema.Type;
 import org.apache.kafka.connect.data.Struct;
+import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.errors.DataException;
 import org.apache.kafka.connect.header.ConnectHeaders;
 import org.apache.kafka.connect.header.Header;
@@ -86,10 +87,10 @@ public class CloudPubSubSinkTask extends SinkTask {
   private boolean includeMetadata;
   private boolean includeHeaders;
   private OrderingKeySource orderingKeySource;
+  private boolean waitForAtLeastOne;
   private ConnectorCredentialsProvider gcpCredentialsProvider;
   private com.google.cloud.pubsub.v1.Publisher publisher;
-
-
+  private ExecutorService syncExecutor;
 
   /** Holds a list of the publishing futures that have not been processed for a single partition. */
   private class OutstandingFuturesForPartition {
@@ -144,6 +145,8 @@ public class CloudPubSubSinkTask extends SinkTask {
         OrderingKeySource.getEnum(
             (String) validatedProps.get(CloudPubSubSinkConnector.ORDERING_KEY_SOURCE));
     gcpCredentialsProvider = new ConnectorCredentialsProvider();
+    waitForAtLeastOne = (Boolean) validatedProps.get(CloudPubSubSinkConnector.WAIT_FOR_AT_LEAST_ONE);
+    syncExecutor = Executors.newCachedThreadPool();
     String credentialsPath = (String) validatedProps.get(ConnectorUtils.GCP_CREDENTIALS_FILE_PATH_CONFIG);
     String credentialsJson = (String) validatedProps.get(ConnectorUtils.GCP_CREDENTIALS_JSON_CONFIG);
     if (credentialsPath != null) {
@@ -169,6 +172,7 @@ public class CloudPubSubSinkTask extends SinkTask {
   @Override
   public void put(Collection<SinkRecord> sinkRecords) {
     log.debug("Received " + sinkRecords.size() + " messages to send to CPS.");
+    CountDownLatch atLeastOneWritten = new CountDownLatch(sinkRecords.size() > 0 ? 1 : 0);
     for (SinkRecord record : sinkRecords) {
       log.trace("Received record: " + record.toString());
       Map<String, String> attributes = new HashMap<>();
@@ -176,7 +180,7 @@ public class CloudPubSubSinkTask extends SinkTask {
       String key = null;
       String partition = record.kafkaPartition().toString();
       if (record.key() != null) {
-        key = record.key().toString();
+        String key = record.key().toString();
         attributes.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, key);
       }
       if (includeMetadata) {
@@ -216,12 +220,12 @@ public class CloudPubSubSinkTask extends SinkTask {
       if (waitForAtLeastOne) {
         result.addListener(() -> atLeastOneWritten.countDown(), syncExecutor);
       }
-    }	
+    }
     if (waitForAtLeastOne) {
-        try {
-         atLeastOneWritten.await(this.maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException ex) {
-         throw new ConnectException("Message publishing failed/timed out", ex);
+      try {
+        atLeastOneWritten.await(this.maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
+      } catch (InterruptedException ex) {
+        throw new ConnectException("Message publishing failed/timed out", ex);
       }
     }
   }
