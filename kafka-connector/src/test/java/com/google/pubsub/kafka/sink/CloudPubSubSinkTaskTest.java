@@ -61,7 +61,8 @@ public class CloudPubSubSinkTaskTest {
   private static final ByteString KAFKA_MESSAGE2 = ByteString.copyFromUtf8("jumps");
   private static final String FIELD_STRING1 = "over";
   private static final String FIELD_STRING2 = "lazy";
-  private static final String KAFKA_MESSAGE_KEY = "dog";
+  private static final String KAFKA_MESSAGE_KEY1 = "dog";
+  private static final String KAFKA_MESSAGE_KEY2 = "cat";
   private static final Schema STRING_SCHEMA = SchemaBuilder.string().build();
   private static final Schema BYTE_STRING_SCHEMA =
       SchemaBuilder.bytes().name(ConnectorUtils.SCHEMA_NAME).build();
@@ -302,7 +303,7 @@ public class CloudPubSubSinkTaskTest {
             KAFKA_TOPIC,
             0,
             STRING_SCHEMA,
-            KAFKA_MESSAGE_KEY,
+            KAFKA_MESSAGE_KEY1,
             STRING_SCHEMA,
             null,
             -1));
@@ -312,7 +313,7 @@ public class CloudPubSubSinkTaskTest {
     List<PubsubMessage> requestArgs = captor.getAllValues();
     List<PubsubMessage> expectedMessages = new ArrayList<>();
     Map<String, String> attributes = new HashMap<>();
-    attributes.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY);
+    attributes.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
     expectedMessages.add(
         PubsubMessage.newBuilder().putAllAttributes(attributes).build());
     assertEquals(requestArgs, expectedMessages);
@@ -391,7 +392,7 @@ public class CloudPubSubSinkTaskTest {
             KAFKA_TOPIC,
             4,
             STRING_SCHEMA,
-            KAFKA_MESSAGE_KEY,
+            KAFKA_MESSAGE_KEY1,
             BYTE_STRING_SCHEMA,
             KAFKA_MESSAGE1,
             1000,
@@ -402,7 +403,7 @@ public class CloudPubSubSinkTaskTest {
             KAFKA_TOPIC,
             4,
             STRING_SCHEMA,
-            KAFKA_MESSAGE_KEY,
+            KAFKA_MESSAGE_KEY1,
             BYTE_STRING_SCHEMA,
             KAFKA_MESSAGE2,
             1001,
@@ -413,7 +414,7 @@ public class CloudPubSubSinkTaskTest {
             KAFKA_TOPIC,
             4,
             STRING_SCHEMA,
-            KAFKA_MESSAGE_KEY,
+            KAFKA_MESSAGE_KEY1,
             BYTE_STRING_SCHEMA,
             KAFKA_MESSAGE2,
             1002,
@@ -427,7 +428,7 @@ public class CloudPubSubSinkTaskTest {
 
     List<PubsubMessage> expectedMessages = new ArrayList<>();
     Map<String, String> attributes1 = new HashMap<>();
-    attributes1.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY);
+    attributes1.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
     attributes1.put(ConnectorUtils.KAFKA_TOPIC_ATTRIBUTE, KAFKA_TOPIC);
     attributes1.put(ConnectorUtils.KAFKA_PARTITION_ATTRIBUTE, "4");
     attributes1.put(ConnectorUtils.KAFKA_OFFSET_ATTRIBUTE, "1000");
@@ -435,7 +436,7 @@ public class CloudPubSubSinkTaskTest {
     expectedMessages.add(
         PubsubMessage.newBuilder().putAllAttributes(attributes1).setData(KAFKA_MESSAGE1).build());
     Map<String, String> attributes2 = new HashMap<>();
-    attributes2.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY);
+    attributes2.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
     attributes2.put(ConnectorUtils.KAFKA_TOPIC_ATTRIBUTE, KAFKA_TOPIC);
     attributes2.put(ConnectorUtils.KAFKA_PARTITION_ATTRIBUTE, "4");
     attributes2.put(ConnectorUtils.KAFKA_OFFSET_ATTRIBUTE, "1001");
@@ -443,7 +444,7 @@ public class CloudPubSubSinkTaskTest {
     expectedMessages.add(
         PubsubMessage.newBuilder().putAllAttributes(attributes2).setData(KAFKA_MESSAGE2).build());
     Map<String, String> attributes3 = new HashMap<>();
-    attributes3.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY);
+    attributes3.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
     attributes3.put(ConnectorUtils.KAFKA_TOPIC_ATTRIBUTE, KAFKA_TOPIC);
     attributes3.put(ConnectorUtils.KAFKA_PARTITION_ATTRIBUTE, "4");
     attributes3.put(ConnectorUtils.KAFKA_OFFSET_ATTRIBUTE, "1002");
@@ -466,7 +467,7 @@ public class CloudPubSubSinkTaskTest {
             KAFKA_TOPIC,
             4,
             STRING_SCHEMA,
-            KAFKA_MESSAGE_KEY,
+            KAFKA_MESSAGE_KEY1,
             BYTE_STRING_SCHEMA,
             KAFKA_MESSAGE1,
             1000,
@@ -478,7 +479,7 @@ public class CloudPubSubSinkTaskTest {
             KAFKA_TOPIC,
             4,
             STRING_SCHEMA,
-            KAFKA_MESSAGE_KEY,
+            KAFKA_MESSAGE_KEY1,
             BYTE_STRING_SCHEMA,
             KAFKA_MESSAGE2,
             1001,
@@ -494,12 +495,12 @@ public class CloudPubSubSinkTaskTest {
 
     List<PubsubMessage> expectedMessages = new ArrayList<>();
     Map<String, String> attributes1 = new HashMap<>();
-    attributes1.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY);
+    attributes1.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
     attributes1.put("myHeader", "myValue");
     expectedMessages.add(
             PubsubMessage.newBuilder().putAllAttributes(attributes1).setData(KAFKA_MESSAGE1).build());
     Map<String, String> attributes2 = new HashMap<>();
-    attributes2.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY);
+    attributes2.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
     attributes2.put("yourHeader", "yourValue");
     expectedMessages.add(
             PubsubMessage.newBuilder().putAllAttributes(attributes2).setData(KAFKA_MESSAGE2).build());
@@ -534,7 +535,7 @@ public class CloudPubSubSinkTaskTest {
         KAFKA_TOPIC,
         4,
         STRING_SCHEMA,
-        KAFKA_MESSAGE_KEY,
+        KAFKA_MESSAGE_KEY1,
         BYTE_STRING_SCHEMA,
         KAFKA_MESSAGE1,
         1000,
@@ -549,7 +550,7 @@ public class CloudPubSubSinkTaskTest {
         KAFKA_TOPIC,
         4,
         STRING_SCHEMA,
-        KAFKA_MESSAGE_KEY,
+        KAFKA_MESSAGE_KEY1,
         BYTE_STRING_SCHEMA,
         KAFKA_MESSAGE2,
         1001,
@@ -565,12 +566,12 @@ public class CloudPubSubSinkTaskTest {
 
     List<PubsubMessage> expectedMessages = new ArrayList<>();
     Map<String, String> attributes1 = new HashMap<>();
-    attributes1.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY);
+    attributes1.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
     attributes1.put("myHeader", "myValue");
     expectedMessages.add(
         PubsubMessage.newBuilder().putAllAttributes(attributes1).setData(KAFKA_MESSAGE1).build());
     Map<String, String> attributes2 = new HashMap<>();
-    attributes2.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY);
+    attributes2.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
     attributes2.put("yourHeader", "yourValue");
     expectedMessages.add(
         PubsubMessage.newBuilder().putAllAttributes(attributes2).setData(KAFKA_MESSAGE2).build());
@@ -627,7 +628,7 @@ public class CloudPubSubSinkTaskTest {
             KAFKA_TOPIC,
             0,
             STRING_SCHEMA,
-            KAFKA_MESSAGE_KEY,
+            KAFKA_MESSAGE_KEY1,
             BYTE_STRING_SCHEMA,
             KAFKA_MESSAGE1,
             -1));
@@ -636,11 +637,125 @@ public class CloudPubSubSinkTaskTest {
             KAFKA_TOPIC,
             0,
             STRING_SCHEMA,
-            KAFKA_MESSAGE_KEY,
+            KAFKA_MESSAGE_KEY1,
             BYTE_STRING_SCHEMA,
             KAFKA_MESSAGE2,
             -1));
     return records;
+  }
+
+  /**
+   * Tests that when requested, Kafka key is used as the ordering key in the messages published to
+   * Cloud Pub/Sub.
+   */
+  @Test
+  public void testOrderingKeysKey() {
+    props.put(CloudPubSubSinkConnector.ORDERING_KEY_SOURCE, "key");
+    task.start(props);
+    List<SinkRecord> records = new ArrayList<SinkRecord>();
+    SinkRecord record = new SinkRecord(
+            KAFKA_TOPIC,
+            4,
+            STRING_SCHEMA,
+            KAFKA_MESSAGE_KEY1,
+            BYTE_STRING_SCHEMA,
+            KAFKA_MESSAGE1,
+            1000,
+            50000L,
+        TimestampType.CREATE_TIME);
+    records.add(record);
+    record = new SinkRecord(
+            KAFKA_TOPIC,
+            4,
+            STRING_SCHEMA,
+            KAFKA_MESSAGE_KEY2,
+            BYTE_STRING_SCHEMA,
+            KAFKA_MESSAGE2,
+            1001,
+            50001L,
+            TimestampType.CREATE_TIME);
+    records.add(record);
+    task.put(records);
+    ArgumentCaptor<PubsubMessage> captor = ArgumentCaptor.forClass(PubsubMessage.class);
+    verify(publisher, times(2)).publish(captor.capture());
+    List<PubsubMessage> requestArgs = captor.getAllValues();
+
+    List<PubsubMessage> expectedMessages = new ArrayList<>();
+    Map<String, String> attributes1 = new HashMap<>();
+    attributes1.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
+    expectedMessages.add(
+        PubsubMessage.newBuilder()
+            .putAllAttributes(attributes1)
+            .setOrderingKey(KAFKA_MESSAGE_KEY1)
+            .setData(KAFKA_MESSAGE1)
+            .build());
+    Map<String, String> attributes2 = new HashMap<>();
+    attributes2.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY2);
+    expectedMessages.add(
+        PubsubMessage.newBuilder()
+            .putAllAttributes(attributes2)
+            .setOrderingKey(KAFKA_MESSAGE_KEY2)
+            .setData(KAFKA_MESSAGE2)
+            .build());
+
+    assertEquals(expectedMessages, requestArgs);
+  }
+
+  /**
+   * Tests that when requested, Kafka key is used as the ordering key in the messages published to
+   * Cloud Pub/Sub.
+   */
+  @Test
+  public void testOrderingKeysPartition() {
+    props.put(CloudPubSubSinkConnector.ORDERING_KEY_SOURCE, "partition");
+    task.start(props);
+    List<SinkRecord> records = new ArrayList<SinkRecord>();
+    SinkRecord record = new SinkRecord(
+            KAFKA_TOPIC,
+            4,
+            STRING_SCHEMA,
+            KAFKA_MESSAGE_KEY1,
+            BYTE_STRING_SCHEMA,
+            KAFKA_MESSAGE1,
+            1000,
+            50000L,
+        TimestampType.CREATE_TIME);
+    records.add(record);
+    record = new SinkRecord(
+            KAFKA_TOPIC,
+            5,
+            STRING_SCHEMA,
+            KAFKA_MESSAGE_KEY2,
+            BYTE_STRING_SCHEMA,
+            KAFKA_MESSAGE2,
+            1001,
+            50001L,
+            TimestampType.CREATE_TIME);
+    records.add(record);
+    task.put(records);
+    ArgumentCaptor<PubsubMessage> captor = ArgumentCaptor.forClass(PubsubMessage.class);
+    verify(publisher, times(2)).publish(captor.capture());
+    List<PubsubMessage> requestArgs = captor.getAllValues();
+
+    List<PubsubMessage> expectedMessages = new ArrayList<>();
+    Map<String, String> attributes1 = new HashMap<>();
+    attributes1.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
+    expectedMessages.add(
+        PubsubMessage.newBuilder()
+            .putAllAttributes(attributes1)
+            .setOrderingKey("4")
+            .setData(KAFKA_MESSAGE1)
+            .build());
+    Map<String, String> attributes2 = new HashMap<>();
+    attributes2.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY2);
+    expectedMessages.add(
+        PubsubMessage.newBuilder()
+            .putAllAttributes(attributes2)
+            .setOrderingKey("5")
+            .setData(KAFKA_MESSAGE2)
+            .build());
+
+    assertEquals(expectedMessages, requestArgs);
   }
 
   /**
@@ -650,7 +765,7 @@ public class CloudPubSubSinkTaskTest {
   private List<PubsubMessage> getPubsubMessagesFromSampleRecords() {
     List<PubsubMessage> messages = new ArrayList<>();
     Map<String, String> attributes = new HashMap<>();
-    attributes.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY);
+    attributes.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, KAFKA_MESSAGE_KEY1);
     messages.add(
         PubsubMessage.newBuilder().putAllAttributes(attributes).setData(KAFKA_MESSAGE1).build());
     messages.add(

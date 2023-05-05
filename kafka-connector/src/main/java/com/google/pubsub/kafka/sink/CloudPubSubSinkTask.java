@@ -19,6 +19,8 @@ import com.google.api.core.ApiFuture;
 import com.google.api.core.ApiFutures;
 import com.google.api.core.SettableApiFuture;
 import com.google.api.gax.batching.BatchingSettings;
+import com.google.api.gax.batching.FlowControlSettings;
+import com.google.api.gax.batching.FlowController;
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.common.annotations.VisibleForTesting;
@@ -52,6 +54,7 @@ import org.apache.kafka.connect.header.ConnectHeaders;
 import org.apache.kafka.connect.header.Header;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.apache.kafka.connect.sink.SinkTask;
+import com.google.pubsub.kafka.sink.CloudPubSubSinkConnector.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.threeten.bp.Duration;
@@ -69,18 +72,23 @@ public class CloudPubSubSinkTask extends SinkTask {
       new HashMap<>();
   private String cpsProject;
   private String cpsTopic;
+  private String cpsEndpoint;
   private String messageBodyName;
   private long maxBufferSize;
   private long maxBufferBytes;
+  private long maxOutstandingRequestBytes;
+  private long maxOutstandingMessages;
   private int maxDelayThresholdMs;
   private int maxRequestTimeoutMs;
   private int maxTotalTimeoutMs;
   private int maxShutdownTimeoutMs;
   private boolean includeMetadata;
   private boolean includeHeaders;
+  private CloudPubSubSinkConnector.OrderingKeySource orderingKeySource;
   private boolean waitForAtLeastOne;
   private ConnectorCredentialsProvider gcpCredentialsProvider;
   private com.google.cloud.pubsub.v1.Publisher publisher;
+  private ExecutorService syncExecutor;
 
   /** Holds a list of the publishing futures that have not been processed for a single partition. */
   private class OutstandingFuturesForPartition {
@@ -113,8 +121,13 @@ public class CloudPubSubSinkTask extends SinkTask {
     Map<String, Object> validatedProps = new CloudPubSubSinkConnector().config().parse(props);
     cpsProject = validatedProps.get(ConnectorUtils.CPS_PROJECT_CONFIG).toString();
     cpsTopic = validatedProps.get(ConnectorUtils.CPS_TOPIC_CONFIG).toString();
+    cpsEndpoint = validatedProps.get(ConnectorUtils.CPS_ENDPOINT).toString();
     maxBufferSize = (Integer) validatedProps.get(CloudPubSubSinkConnector.MAX_BUFFER_SIZE_CONFIG);
     maxBufferBytes = (Long) validatedProps.get(CloudPubSubSinkConnector.MAX_BUFFER_BYTES_CONFIG);
+    maxOutstandingRequestBytes =
+        (Long) validatedProps.get(CloudPubSubSinkConnector.MAX_OUTSTANDING_REQUEST_BYTES);
+    maxOutstandingMessages =
+        (Long) validatedProps.get(CloudPubSubSinkConnector.MAX_OUTSTANDING_MESSAGES);
     maxDelayThresholdMs =
         (Integer) validatedProps.get(CloudPubSubSinkConnector.MAX_DELAY_THRESHOLD_MS);
     maxRequestTimeoutMs =
@@ -126,8 +139,12 @@ public class CloudPubSubSinkTask extends SinkTask {
     messageBodyName = (String) validatedProps.get(CloudPubSubSinkConnector.CPS_MESSAGE_BODY_NAME);
     includeMetadata = (Boolean) validatedProps.get(CloudPubSubSinkConnector.PUBLISH_KAFKA_METADATA);
     includeHeaders = (Boolean) validatedProps.get(CloudPubSubSinkConnector.PUBLISH_KAFKA_HEADERS);
+    orderingKeySource =
+        CloudPubSubSinkConnector.OrderingKeySource.getEnum(
+            (String) validatedProps.get(CloudPubSubSinkConnector.ORDERING_KEY_SOURCE));
     gcpCredentialsProvider = new ConnectorCredentialsProvider();
     waitForAtLeastOne = (Boolean) validatedProps.get(CloudPubSubSinkConnector.WAIT_FOR_AT_LEAST_ONE);
+    syncExecutor = Executors.newCachedThreadPool();
     String credentialsPath = (String) validatedProps.get(ConnectorUtils.GCP_CREDENTIALS_FILE_PATH_CONFIG);
     String credentialsJson = (String) validatedProps.get(ConnectorUtils.GCP_CREDENTIALS_JSON_CONFIG);
     if (credentialsPath != null) {
@@ -158,14 +175,16 @@ public class CloudPubSubSinkTask extends SinkTask {
       log.trace("Received record: " + record.toString());
       Map<String, String> attributes = new HashMap<>();
       ByteString value = handleValue(record.valueSchema(), record.value(), attributes);
+      String key = null;
+      String partition = record.kafkaPartition().toString();
       if (record.key() != null) {
-        String key = record.key().toString();
+        key = record.key().toString();
         attributes.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, key);
       }
       if (includeMetadata) {
         attributes.put(ConnectorUtils.KAFKA_TOPIC_ATTRIBUTE, record.topic());
         attributes.put(
-            ConnectorUtils.KAFKA_PARTITION_ATTRIBUTE, record.kafkaPartition().toString());
+            ConnectorUtils.KAFKA_PARTITION_ATTRIBUTE, partition);
         attributes.put(ConnectorUtils.KAFKA_OFFSET_ATTRIBUTE, Long.toString(record.kafkaOffset()));
         if (record.timestamp() != null) {
           attributes.put(ConnectorUtils.KAFKA_TIMESTAMP_ATTRIBUTE, record.timestamp().toString());
@@ -181,17 +200,23 @@ public class CloudPubSubSinkTask extends SinkTask {
         SettableApiFuture<String> nullMessageFuture = SettableApiFuture.<String>create();
         nullMessageFuture.set("No message");
         addPendingMessageFuture(record.topic(), record.kafkaPartition(), nullMessageFuture);
-        return;
+        continue;
       }
       PubsubMessage.Builder builder = PubsubMessage.newBuilder();
       builder.putAllAttributes(attributes);
       if (value != null) {
         builder.setData(value);
       }
+      if (orderingKeySource == OrderingKeySource.KEY && key != null && !key.isEmpty()) {
+        builder.setOrderingKey(key);
+      } else if (orderingKeySource == CloudPubSubSinkConnector.OrderingKeySource.PARTITION) {
+        builder.setOrderingKey(partition);
+      }
+
       PubsubMessage message = builder.build();
       ApiFuture<String> result = publishMessage(record.topic(), record.kafkaPartition(), message);
       if (waitForAtLeastOne) {
-        result.addListener(() -> atLeastOneWritten.countDown(), MoreExecutors.directExecutor());
+        result.addListener(() -> atLeastOneWritten.countDown(), syncExecutor);
       }
     }
     if (waitForAtLeastOne) {
@@ -393,15 +418,24 @@ public class CloudPubSubSinkTask extends SinkTask {
 
   private void createPublisher() {
     ProjectTopicName fullTopic = ProjectTopicName.of(cpsProject, cpsTopic);
+
+    BatchingSettings.Builder batchingSettings = BatchingSettings.newBuilder()
+        .setDelayThreshold(Duration.ofMillis(maxDelayThresholdMs))
+        .setElementCountThreshold(maxBufferSize)
+        .setRequestByteThreshold(maxBufferBytes);
+
+    if (useFlowControl()) {
+      batchingSettings.setFlowControlSettings(FlowControlSettings.newBuilder()
+          .setMaxOutstandingRequestBytes(maxOutstandingRequestBytes)
+          .setMaxOutstandingElementCount(maxOutstandingMessages)
+          .setLimitExceededBehavior(FlowController.LimitExceededBehavior.Block)
+          .build());
+    }
+
     com.google.cloud.pubsub.v1.Publisher.Builder builder =
         com.google.cloud.pubsub.v1.Publisher.newBuilder(fullTopic)
             .setCredentialsProvider(gcpCredentialsProvider)
-            .setBatchingSettings(
-                BatchingSettings.newBuilder()
-                    .setDelayThreshold(Duration.ofMillis(maxDelayThresholdMs))
-                    .setElementCountThreshold(maxBufferSize)
-                    .setRequestByteThreshold(maxBufferBytes)
-                    .build())
+            .setBatchingSettings(batchingSettings.build())
             .setRetrySettings(
                 RetrySettings.newBuilder()
                     // All values that are not configurable come from the defaults for the publisher
@@ -419,6 +453,12 @@ public class CloudPubSubSinkTask extends SinkTask {
     } catch (Exception e) {
       throw new ConnectException("Creating publisher failed", e);
     }
+  }
+
+  private boolean useFlowControl() {
+    // only enable flow control if at least one flow control config has been set
+    return maxOutstandingRequestBytes != CloudPubSubSinkConnector.DEFAULT_MAX_OUTSTANDING_REQUEST_BYTES
+        || maxOutstandingRequestBytes != CloudPubSubSinkConnector.DEFAULT_MAX_OUTSTANDING_MESSAGES;
   }
 
   @Override

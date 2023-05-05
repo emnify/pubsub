@@ -23,8 +23,8 @@ import com.google.pubsub.kafka.common.ConnectorUtils;
 import com.google.pubsub.kafka.common.ConnectorCredentialsProvider;
 import com.google.pubsub.v1.GetSubscriptionRequest;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,8 +52,15 @@ public class CloudPubSubSourceConnector extends SourceConnector {
   public static final String KAFKA_MESSAGE_KEY_CONFIG = "kafka.key.attribute";
   public static final String KAFKA_MESSAGE_TIMESTAMP_CONFIG = "kafka.timestamp.attribute";
   public static final String KAFKA_TOPIC_CONFIG = "kafka.topic";
+  public static final String CPS_MAKE_ORDERING_KEY_ATTRIBUTE = "cps.makeOrderingKeyAttribute";
   public static final String CPS_SUBSCRIPTION_CONFIG = "cps.subscription";
   public static final String CPS_MAX_BATCH_SIZE_CONFIG = "cps.maxBatchSize";
+  public static final String CPS_STREAMING_PULL_ENABLED = "cps.streamingPull.enabled";
+  public static final String CPS_STREAMING_PULL_FLOW_CONTROL_MESSAGES = "cps.streamingPull.flowControlMessages";
+  public static final String CPS_STREAMING_PULL_FLOW_CONTROL_BYTES = "cps.streamingPull.flowControlBytes";
+  public static final String CPS_STREAMING_PULL_PARALLEL_STREAMS = "cps.streamingPull.parallelStreams";
+  public static final String CPS_STREAMING_PULL_MAX_ACK_EXTENSION_MS = "cps.streamingPull.maxAckExtensionMs";
+  public static final String CPS_STREAMING_PULL_MAX_MS_PER_ACK_EXTENSION = "cps.streamingPull.maxMsPerAckExtension";
   public static final int DEFAULT_CPS_MAX_BATCH_SIZE = 100;
   public static final int DEFAULT_KAFKA_PARTITIONS = 1;
   public static final String DEFAULT_KAFKA_PARTITION_SCHEME = "round_robin";
@@ -64,7 +71,8 @@ public class CloudPubSubSourceConnector extends SourceConnector {
     ROUND_ROBIN("round_robin"),
     HASH_KEY("hash_key"),
     HASH_VALUE("hash_value"),
-    KAFKA_PARTITIONER("kafka_partitioner");
+    KAFKA_PARTITIONER("kafka_partitioner"),
+    ORDERING_KEY("ordering_key");
 
     private String value;
 
@@ -85,6 +93,8 @@ public class CloudPubSubSourceConnector extends SourceConnector {
         return PartitionScheme.HASH_VALUE;
       } else if (value.equals("kafka_partitioner")) {
         return PartitionScheme.KAFKA_PARTITIONER;
+      } else if (value.equals("ordering_key")) {
+        return PartitionScheme.ORDERING_KEY;
       } else {
         return null;
       }
@@ -99,11 +109,14 @@ public class CloudPubSubSourceConnector extends SourceConnector {
         if (!value.equals(CloudPubSubSourceConnector.PartitionScheme.ROUND_ROBIN.toString())
             && !value.equals(CloudPubSubSourceConnector.PartitionScheme.HASH_VALUE.toString())
             && !value.equals(CloudPubSubSourceConnector.PartitionScheme.HASH_KEY.toString())
-            && !value.equals(CloudPubSubSourceConnector.PartitionScheme.KAFKA_PARTITIONER.toString())) {
+            && !value.equals(
+                CloudPubSubSourceConnector.PartitionScheme.KAFKA_PARTITIONER.toString())
+            && !value.equals(CloudPubSubSourceConnector.PartitionScheme.ORDERING_KEY.toString())) {
           throw new ConfigException(
               "Valid values for "
                   + CloudPubSubSourceConnector.KAFKA_PARTITION_SCHEME_CONFIG
-                  + " are " + Arrays.toString(PartitionScheme.values()));
+                  + " are "
+                  + Arrays.toString(PartitionScheme.values()));
         }
       }
     }
@@ -185,13 +198,49 @@ public class CloudPubSubSourceConnector extends SourceConnector {
             DEFAULT_CPS_MAX_BATCH_SIZE,
             ConfigDef.Range.between(1, Integer.MAX_VALUE),
             Importance.MEDIUM,
-            "The minimum number of messages to batch per pull request to Cloud Pub/Sub.")
+            "The maximum number of messages to batch per pull request to Cloud Pub/Sub.")
+        .define(
+            CPS_STREAMING_PULL_ENABLED,
+            Type.BOOLEAN,
+            false,
+            Importance.MEDIUM,
+            "Whether to use streaming pull for the connector to connect to Cloud Pub/Sub. If provided, cps.maxBatchSize is ignored.")
+        .define(
+            CPS_STREAMING_PULL_FLOW_CONTROL_MESSAGES,
+            Type.LONG,
+            1000L,
+            Importance.MEDIUM,
+            "The maximum number of outstanding messages per task when using streaming pull.")
+        .define(
+            CPS_STREAMING_PULL_FLOW_CONTROL_BYTES,
+            Type.LONG,
+            100L * 1024 * 1024,
+            Importance.MEDIUM,
+            "The maximum number of outstanding message bytes per task when using streaming pull.")
+        .define(
+            CPS_STREAMING_PULL_PARALLEL_STREAMS,
+            Type.INT,
+            1,
+            Importance.MEDIUM,
+            "The number of streams to open per-task when using streaming pull.")
+        .define(
+            CPS_STREAMING_PULL_MAX_ACK_EXTENSION_MS,
+            Type.LONG,
+            0,
+            Importance.MEDIUM,
+            "The maximum number of milliseconds the subscribe deadline will be extended to in milliseconds when using streaming pull. A value of `0` implies the java-pubsub library default value.")
+        .define(
+            CPS_STREAMING_PULL_MAX_MS_PER_ACK_EXTENSION,
+            Type.LONG,
+            0,
+            Importance.MEDIUM,
+            "The maximum number of milliseconds to extend the subscribe deadline for at a time when using streaming pull. A value of `0` implies the java-pubsub library default value.")
         .define(
             KAFKA_MESSAGE_KEY_CONFIG,
             Type.STRING,
             null,
             Importance.MEDIUM,
-            "The Cloud Pub/Sub message attribute to use as a key for messages published to Kafka.")
+            "The Cloud Pub/Sub message attribute to use as a key for messages published to Kafka. If set to \"orderingKey\", use the message's ordering key.")
         .define(
             KAFKA_MESSAGE_TIMESTAMP_CONFIG,
             Type.STRING,
@@ -231,7 +280,19 @@ public class CloudPubSubSourceConnector extends SourceConnector {
             Type.BOOLEAN,
             false,
             Importance.LOW,
-            "Use Kafka record headers to store Pub/Sub message attributes");
+            "Use Kafka record headers to store Pub/Sub message attributes")
+        .define(
+            CPS_MAKE_ORDERING_KEY_ATTRIBUTE,
+            Type.BOOLEAN,
+            false,
+            Importance.LOW,
+            "When true, add the ordering key to the set of attributes with the key \"orderingKey\" "
+                + "if it is non-empty.")
+        .define(ConnectorUtils.CPS_ENDPOINT,
+            Type.STRING,
+            ConnectorUtils.CPS_DEFAULT_ENDPOINT,
+            Importance.LOW,
+            "The Pub/Sub endpoint to use.");
   }
 
   /**
