@@ -19,10 +19,11 @@ import com.google.api.core.ApiFuture;
 import com.google.api.core.ApiFutures;
 import com.google.api.core.SettableApiFuture;
 import com.google.api.gax.batching.BatchingSettings;
+import com.google.api.gax.batching.FlowControlSettings;
+import com.google.api.gax.batching.FlowController;
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.util.concurrent.MoreExecutors;
 import com.google.protobuf.ByteString;
 import com.google.pubsub.kafka.common.ConnectorUtils;
 import com.google.pubsub.kafka.common.ConnectorCredentialsProvider;
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -51,6 +53,7 @@ import org.apache.kafka.connect.header.ConnectHeaders;
 import org.apache.kafka.connect.header.Header;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.apache.kafka.connect.sink.SinkTask;
+import com.google.pubsub.kafka.sink.CloudPubSubSinkConnector.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.threeten.bp.Duration;
@@ -80,7 +83,7 @@ public class CloudPubSubSinkTask extends SinkTask {
   private int maxShutdownTimeoutMs;
   private boolean includeMetadata;
   private boolean includeHeaders;
-  private OrderingKeySource orderingKeySource;
+  private CloudPubSubSinkConnector.OrderingKeySource orderingKeySource;
   private boolean waitForAtLeastOne;
   private ConnectorCredentialsProvider gcpCredentialsProvider;
   private com.google.cloud.pubsub.v1.Publisher publisher;
@@ -136,7 +139,7 @@ public class CloudPubSubSinkTask extends SinkTask {
     includeMetadata = (Boolean) validatedProps.get(CloudPubSubSinkConnector.PUBLISH_KAFKA_METADATA);
     includeHeaders = (Boolean) validatedProps.get(CloudPubSubSinkConnector.PUBLISH_KAFKA_HEADERS);
     orderingKeySource =
-        OrderingKeySource.getEnum(
+        CloudPubSubSinkConnector.OrderingKeySource.getEnum(
             (String) validatedProps.get(CloudPubSubSinkConnector.ORDERING_KEY_SOURCE));
     gcpCredentialsProvider = new ConnectorCredentialsProvider();
     waitForAtLeastOne = (Boolean) validatedProps.get(CloudPubSubSinkConnector.WAIT_FOR_AT_LEAST_ONE);
@@ -174,7 +177,7 @@ public class CloudPubSubSinkTask extends SinkTask {
       String key = null;
       String partition = record.kafkaPartition().toString();
       if (record.key() != null) {
-        String key = record.key().toString();
+        key = record.key().toString();
         attributes.put(ConnectorUtils.CPS_MESSAGE_KEY_ATTRIBUTE, key);
       }
       if (includeMetadata) {
@@ -205,7 +208,7 @@ public class CloudPubSubSinkTask extends SinkTask {
       }
       if (orderingKeySource == OrderingKeySource.KEY && key != null && !key.isEmpty()) {
         builder.setOrderingKey(key);
-      } else if (orderingKeySource == OrderingKeySource.PARTITION) {
+      } else if (orderingKeySource == CloudPubSubSinkConnector.OrderingKeySource.PARTITION) {
         builder.setOrderingKey(partition);
       }
 

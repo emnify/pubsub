@@ -55,12 +55,15 @@ public class CloudPubSubSinkConnector extends SinkConnector {
   public static final int DEFAULT_SHUTDOWN_TIMEOUT_MS = 60000;
   public static final long DEFAULT_MAX_OUTSTANDING_REQUEST_BYTES = Long.MAX_VALUE;
   public static final long DEFAULT_MAX_OUTSTANDING_MESSAGES = Long.MAX_VALUE;
+  public static final boolean DEFAULT_WAIT_FOR_AT_LEAST_ONE = true;
   public static final String CPS_MESSAGE_BODY_NAME = "messageBodyName";
   public static final String DEFAULT_MESSAGE_BODY_NAME = "cps_message_body";
   public static final String PUBLISH_KAFKA_METADATA = "metadata.publish";
   public static final String PUBLISH_KAFKA_HEADERS = "headers.publish";
   public static final String ORDERING_KEY_SOURCE = "orderingKeySource";
   public static final String DEFAULT_ORDERING_KEY_SOURCE = "none";
+  public static final String WAIT_FOR_AT_LEAST_ONE = "wait.publish";
+
 
   /** Defines the accepted values for the {@link #ORDERING_KEY_SOURCE}. */
   public enum OrderingKeySource {
