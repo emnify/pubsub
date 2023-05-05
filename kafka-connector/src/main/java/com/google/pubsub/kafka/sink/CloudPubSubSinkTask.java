@@ -24,6 +24,7 @@ import com.google.api.gax.batching.FlowController;
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.protobuf.ByteString;
 import com.google.pubsub.kafka.common.ConnectorUtils;
 import com.google.pubsub.kafka.common.ConnectorCredentialsProvider;

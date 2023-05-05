@@ -254,7 +254,7 @@ public class CloudPubSubSinkConnector extends SinkConnector {
             ConnectorUtils.CPS_DEFAULT_ENDPOINT,
             Importance.LOW,
             "The Pub/Sub endpoint to use.")
-	.define(ConnectorUtils.GCP_CREDENTIALS_JSON_CONFIG,
+      	.define(ConnectorUtils.GCP_CREDENTIALS_JSON_CONFIG,
             Type.STRING,
             null,
             Importance.HIGH,
