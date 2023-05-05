@@ -15,22 +15,17 @@
 ////////////////////////////////////////////////////////////////////////////////
 package com.google.pubsub.kafka.sink;
 
-import static com.google.pubsub.kafka.common.ConnectorUtils.getSystemExecutor;
-
 import com.google.api.core.ApiFuture;
 import com.google.api.core.ApiFutures;
 import com.google.api.core.SettableApiFuture;
 import com.google.api.gax.batching.BatchingSettings;
-import com.google.api.gax.core.FixedExecutorProvider;
-import com.google.api.gax.batching.FlowControlSettings;
-import com.google.api.gax.batching.FlowController;
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.protobuf.ByteString;
 import com.google.pubsub.kafka.common.ConnectorUtils;
 import com.google.pubsub.kafka.common.ConnectorCredentialsProvider;
-import com.google.pubsub.kafka.sink.CloudPubSubSinkConnector.OrderingKeySource;
 import com.google.pubsub.v1.ProjectTopicName;
 import com.google.pubsub.v1.PubsubMessage;
 
@@ -42,8 +37,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -223,8 +217,15 @@ public class CloudPubSubSinkTask extends SinkTask {
     }
     if (waitForAtLeastOne) {
       try {
-        atLeastOneWritten.await(this.maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
-      } catch (InterruptedException ex) {
+        try {
+          atLeastOneWritten.await(this.maxTotalTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ex) {
+          // find out which one failed
+          ApiFutures.allAsList(allOutstandingFutures.values().stream()
+                  .flatMap(v -> v.values().stream())
+                  .flatMap(v -> v.futures.stream()).collect(Collectors.toList()));
+        }
+      } catch (Exception ex) {
         throw new ConnectException("Message publishing failed/timed out", ex);
       }
     }
@@ -442,12 +443,7 @@ public class CloudPubSubSinkTask extends SinkTask {
                     .setMaxRetryDelay(Duration.ofMillis(Long.MAX_VALUE))
                     .setInitialRpcTimeout(Duration.ofSeconds(10))
                     .setRpcTimeoutMultiplier(2)
-                    .build())
-            .setExecutorProvider(FixedExecutorProvider.create(getSystemExecutor()))
-            .setEndpoint(cpsEndpoint);
-    if (orderingKeySource != OrderingKeySource.NONE) {
-      builder.setEnableMessageOrdering(true); 
-    }
+                    .build());
     try {
       publisher = builder.build();
     } catch (Exception e) {
